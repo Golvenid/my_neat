@@ -1,0 +1,237 @@
+import math
+import random
+
+class Node:
+    def __init__(self, id, type):
+        self.id = id
+        self.type = type
+        self.value = 0.0
+
+    def sigmoid(self, x):
+        return 1 / (1 + math.exp(-x))
+
+    def compute(self, incoming):
+        if self.type == 'input':
+            return self.value
+
+        sum = 0
+        for connection in incoming:
+            sum += connection.weight * connection._from.value
+
+        self.value = sum
+
+        return self.sigmoid(self.value)
+
+class Connection:
+    def __init__(self, _from, _to, weight):
+        self._from = _from
+        self._to = _to
+        self.weight = weight
+        self.enabled = True
+
+class Genome:
+    def __init__(self):
+        self.nodes = []
+        self.connections = []
+
+    def forward(self, inputs):
+        for i in range(len(inputs)):
+            
+            self.inputNodes[i].value = inputs[i]
+
+        for node in self.nodes:
+            incoming = [connection for connection in self.connections if connection.enabled and connection._to == node]
+            node.compute(incoming)
+
+        return [node.value for node in self.outputNodes]
+
+    @property
+    def inputNodes(self):
+        return [node for node in self.nodes if node.type == 'input']
+
+    @property
+    def outputNodes(self):
+        return [node for node in self.nodes if node.type == 'output']
+
+    def addNode(self, nodeType):
+        nodeId = len(self.nodes)
+        newNode = Node(nodeId, nodeType)
+        self.nodes.append(newNode)
+        return newNode
+
+    def addConnection(self, _from, _to, weight):
+        newConnection = Connection(_from, _to, weight)
+        self.connections.append(newConnection)
+        return newConnection
+
+    def getRandomNode(self):
+        return self.nodes[random.randint(0, len(self.nodes) - 1)]
+
+    def getRandomConnection(self):
+        return self.connections[random.randint(0, len(self.connections) - 1)]
+
+class NEAT:
+    populationSize = 1
+    population = []
+    generation = 0
+    mutateWeightChance = 0.8
+    newConnectionChance = 0.05
+    newNodeChance = 0.03
+
+    def __init__(self, populationSize):
+        self.populationSize = populationSize
+
+        
+        for _ in range(populationSize):
+            self.population.append(createInitialGenome())
+
+    def mutate(self, genome):
+        if random.random() < self.mutateWeightChance:
+            connection = genome.getRandomConnection()
+            connection.weight += getRandomBetween(-0.5, 0.5)
+
+        if random.random() < self.newConnectionChance:
+            node1 = genome.getRandomNode()
+            node2 = genome.getRandomNode()
+
+            if node1.type != node2.type:
+                genome.addConnection(node1, node2, getRandomBetween(-1, 1))
+
+        if random.random() < self.newNodeChance:
+            connection = genome.getRandomConnection()
+            connection.enabled = False
+            middleNode = genome.addNode('hidden')
+            genome.addConnection(connection._from, middleNode, 1)
+            genome.addConnection(middleNode, connection._to, connection.weight)
+
+    def computeFitness(self, genome):
+        cases = [
+            {'inputs': [0, 0], 'expected': [0]},
+            {'inputs': [0, 1], 'expected': [1]},
+            {'inputs': [1, 0], 'expected': [1]},
+            {'inputs': [1, 1], 'expected': [0]}
+        ]
+
+        totalError = 0.0
+        for testCase in cases:
+            
+            inputs = testCase['inputs']
+            expected = testCase['expected']
+            output = genome.forward(inputs)
+            
+            error = sum((output[i] - expected[i])**2 for i in range(len(output)))
+            totalError += error
+
+        
+        return 1 / (1 + totalError)
+
+    def evolve(self):
+        print('Evolving...')
+        
+        fitnesses = [self.computeFitness(genome) for genome in self.population]
+        totalFitness = sum(fitnesses)
+      
+        print(f'Total fitness: {totalFitness}')
+
+        
+        newPopulation = []
+        while len(newPopulation) < self.populationSize:
+            
+            pick = random.random() * totalFitness
+            current = 0
+            for i in range(len(self.population)):
+                genome = self.population[i]
+                current += fitnesses[i]
+                if current > pick:
+                    offspring = self.reproduce(genome)
+                    newPopulation.append(offspring)
+                    break
+
+        self.population = newPopulation
+        print(len(self.population))
+        self.generation += 1
+
+    def reproduce(self, parent):
+        offspring = Genome()
+
+        for node in parent.nodes:
+            offspring.addNode(node.type)
+        for connection in parent.connections:
+            offspring.addConnection(offspring.nodes[connection._from.id], offspring.nodes[connection._to.id], connection.weight)
+
+        self.mutate(offspring)
+
+        return offspring
+
+
+def getRandomBetween(min, max):
+    return random.uniform(min, max)
+
+def createInitialGenome():
+    genome = Genome()
+    input1 = genome.addNode('input')
+    input2 = genome.addNode('input')
+    output = genome.addNode('output')
+    genome.addConnection(input1, output, getRandomBetween(-1, 1))
+    genome.addConnection(input2, output, getRandomBetween(-1, 1))
+
+    return genome
+
+
+
+
+
+def findBest(populationSize, maxGenerations):
+    print('Finding best genome...')
+
+    neat = NEAT(populationSize)
+
+    targetFitness = 0.99
+
+    bestGenome = None
+    bestFitness = 0.0
+    
+    neat.generation = 0
+
+    for i in range(maxGenerations):
+        print(f'Generation {neat.generation}:')
+
+        neat.evolve()
+    
+        fitnesses = [neat.computeFitness(genome) for genome in neat.population]
+        currentBestFitness = max(fitnesses)
+        bestGenomeIdx = fitnesses.index(currentBestFitness)
+    
+        if currentBestFitness > bestFitness:
+            bestFitness = currentBestFitness
+            bestGenome = neat.population[bestGenomeIdx]
+
+        if bestFitness >= targetFitness:
+            break
+
+    return bestGenome
+
+genome = createInitialGenome()
+
+test_output = genome.forward([1, 0])
+
+print('Test output:', test_output)
+
+bestGenome = findBest(100, 100)
+
+print('Best genome found:', bestGenome)
+
+testCases = [
+    {'inputs': [0, 0], 'expected': [0]},
+    {'inputs': [0, 1], 'expected': [1]},
+    {'inputs': [1, 0], 'expected': [1]},
+    {'inputs': [1, 1], 'expected': [0]}
+]
+
+predictions = []
+for testCase in testCases:
+    inputs = testCase['inputs']
+    prediction = bestGenome.forward(inputs)
+    predictions.append({'inputs': inputs, 'prediction': prediction})
+
+print(predictions)
